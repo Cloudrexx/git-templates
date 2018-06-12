@@ -19,6 +19,7 @@ RED=
 NC=
 SILENT_MODE=$(git config --get linter.php.silent || echo false)
 REPO_ROOT=$(git rev-parse --show-toplevel)
+ENVSTATUS=false
 
 function changed_php_files {
     git diff --cached --name-only --diff-filter=ACMR | grep ".php$"
@@ -31,20 +32,19 @@ function changed_php_file_count {
 function phpexec {
     # use local php if docker is not installed
     if ! command -v docker >/dev/null 2>&1; then
-        cat /dev/stdin | php "$@"
-        exit $?
+        php -l "$1"
     fi
-    if ./cx env status --q; then
+    if $ENVSTATUS; then
         # use env container for linting
-        cat /dev/stdin | docker exec -i "$(./cx envs list --dir="$PWD" --real)_web_1" php "$@"
+        ./cx env exec "php -l $1"
     else
         # use standalone docker container for linting
-        cat /dev/stdin | docker run --rm -i cloudrexx/web:PHP7.0 php "$@"
+        docker run --rm -i cloudrexx/web:PHP7.0 php "-l $1"
     fi
 }
 
 function php_lint {
-    git show :$1 | phpexec --syntax-check 2>&1 | grep "Parse error" | sed -e "s| in - on line| in $REPO_ROOT/$1 on line|"
+    phpexec "$1" 2>&1 | grep "Parse error"
 }
 
 function xdebug_grep {
@@ -104,6 +104,11 @@ function main {
         exit 0;
     fi
 
+    if command -v docker >/dev/null 2>&1; then
+        if ./cx env status --q; then
+            ENVSTATUS=true
+        fi
+    fi
 
     case "$(git config --get color.ui)" in
       "auto" | "always")
@@ -116,11 +121,11 @@ function main {
           ;;
     esac
 
-    changed_files=$(changed_php_files)
+    changed_files="$(changed_php_files)"
     i=0
-    _end=$(changed_php_file_count)
+    _end=$(echo "$changed_files" | wc -l)
     ProgressBar $i $_end
-    for file in $(changed_php_files)
+    while read -r file
     do
         errors=$(php_lint $file; xdebug_grep $file)
         if [[ "$errors" ]]
@@ -129,7 +134,7 @@ function main {
         fi
         i=$(($i+1))
         ProgressBar $i $_end
-    done
+    done <<< "$changed_files"
     echo ""
 
     if $ERROR_FOUND
