@@ -98,6 +98,13 @@ function ProgressBar {
 function main {
     local errors=
 
+    if [ -f "$REPO_ROOT/tmp/LegacyClassCache.dat" ]; then
+        if [ -s "$REPO_ROOT/tmp/LegacyClassCache.dat" ]; then
+            echo "Legacy class cache file is non-empty!"
+            exit 2
+        fi
+    fi
+
     if ! command -v php >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1
     then
         print_mesg "PHP-cli not installed. PHP lint checks will be skipped."
